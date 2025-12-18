@@ -4,13 +4,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("K-Means Clustering Lab – Step-by-Step Algorithm Trace")
+st.title("K-Means Clustering Lab – Step-by-Step with Elbow Method")
 
 # -------------------------------------------------
 # SESSION STATE
 # -------------------------------------------------
-if "step" not in st.session_state:
-    st.session_state.step = 0
+if "phase" not in st.session_state:
+    st.session_state.phase = 0
+
+if "show_elbow" not in st.session_state:
+    st.session_state.show_elbow = False
 
 if "point_index" not in st.session_state:
     st.session_state.point_index = 0
@@ -20,8 +23,7 @@ if "point_index" not in st.session_state:
 # -------------------------------------------------
 st.header("1. Upload Dataset")
 
-file = st.file_uploader("Upload CSV file (2 numeric columns only)", type=["csv"])
-
+file = st.file_uploader("Upload CSV file (2 numeric columns)", type=["csv"])
 if not file:
     st.stop()
 
@@ -47,18 +49,21 @@ left, right = st.columns([6, 4])
 with left:
     st.header("2. Elbow Method")
 
-    show_elbow_calc = st.checkbox("Show elbow method calculations")
+    show_calc = st.checkbox("Show elbow method calculations")
 
-    inertia_values = []
-    elbow_tables = {}
+    if st.button("Show / Hide Elbow Graph"):
+        st.session_state.show_elbow = not st.session_state.show_elbow
 
     max_k = min(6, n)
+    inertia_values = []
+
+    elbow_explanation = ""
 
     for k in range(1, max_k + 1):
         centroids = X[:k]
-        squared_distances = []
-
+        sq_distances = []
         rows = []
+
         for i, point in enumerate(X):
             dists = []
             for c in centroids:
@@ -68,23 +73,21 @@ with left:
                 dists.append(sq)
 
             min_sq = min(dists)
-            squared_distances.append(min_sq)
+            sq_distances.append(min_sq)
 
-            rows.append({
-                "Point": i + 1,
-                "Squared Distances": dists,
-                "Min Squared Distance": min_sq
-            })
+            if show_calc:
+                rows.append({
+                    "Point": i + 1,
+                    "Squared Distances to Centroids": dists,
+                    "Minimum Squared Distance": min_sq
+                })
 
-        inertia = sum(squared_distances)
+        inertia = sum(sq_distances)
         inertia_values.append(inertia)
-        elbow_tables[k] = rows
 
-        if show_elbow_calc:
+        if show_calc:
             st.subheader(f"K = {k}")
-            st.write("Inertia Calculation (Sum of Squared Distances)")
-            calc_df = pd.DataFrame(rows)
-            st.dataframe(calc_df, height=180)
+            st.dataframe(pd.DataFrame(rows), height=180)
             st.write(f"Inertia = {inertia}")
 
     elbow_df = pd.DataFrame({
@@ -92,49 +95,83 @@ with left:
         "Inertia": inertia_values
     })
 
+    # Intelligent explanation
+    diffs = np.diff(inertia_values)
+    elbow_k = np.argmin(np.abs(diffs)) + 1
+
+    st.subheader("Elbow Method Interpretation")
+    st.write(
+        f"""
+        Inertia decreases rapidly until K = {elbow_k}, after which the reduction becomes slower.
+        This indicates that adding more clusters beyond this point does not significantly improve
+        compactness.
+
+        Therefore, K = {elbow_k + 1} is a reasonable choice for this dataset.
+        """
+    )
+
 with right:
-    fig, ax = plt.subplots(figsize=(4, 4))
-    ax.plot(elbow_df["K"], elbow_df["Inertia"], marker="o")
-    ax.set_xlabel("K")
-    ax.set_ylabel("Inertia")
-    ax.set_title("Elbow Method")
-    st.pyplot(fig)
+    if st.session_state.show_elbow:
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.plot(elbow_df["K"], elbow_df["Inertia"], marker="o")
+        ax.set_xlabel("Number of clusters (K)")
+        ax.set_ylabel("Inertia")
+        ax.set_title("Elbow Method")
+        st.pyplot(fig)
 
 # -------------------------------------------------
 # SELECT K
 # -------------------------------------------------
 with left:
-    st.header("3. Select K and Start K-Means")
-    k = st.number_input("Selected number of clusters (K)", min_value=2, max_value=max_k, value=2)
+    st.header("3. Select K")
+
+    k = st.number_input(
+        "Chosen number of clusters (based on elbow method)",
+        min_value=2,
+        max_value=max_k,
+        value=min(max_k, elbow_k + 1)
+    )
 
     if st.button("Next"):
-        st.session_state.step = 1
-        st.session_state.centroids = X[:k].astype(float)
-        st.session_state.clusters = np.full(n, -1)
+        st.session_state.phase = 1
         st.session_state.point_index = 0
+
+        # Intelligent centroid initialization (K-Means++)
+        centroids = []
+        centroids.append(X[np.random.randint(0, n)])
+
+        while len(centroids) < k:
+            distances = np.array([
+                min(np.linalg.norm(x - c) for c in centroids)
+                for x in X
+            ])
+            next_centroid = X[np.argmax(distances)]
+            centroids.append(next_centroid)
+
+        st.session_state.centroids = np.array(centroids)
+        st.session_state.clusters = np.full(n, -1)
 
 # -------------------------------------------------
 # K-MEANS STEP-BY-STEP
 # -------------------------------------------------
-if st.session_state.step == 1:
+if st.session_state.phase == 1:
 
     centroids = st.session_state.centroids
     clusters = st.session_state.clusters
     i = st.session_state.point_index
 
     if i < n:
-
         with left:
             st.header("4. K-Means Algorithm (Point-wise)")
 
-            show_calc = st.checkbox("Show distance calculations")
+            show_point_calc = st.checkbox("Show distance calculations for this point")
 
             point = X[i]
             st.subheader(f"Processing Point {i + 1}")
-            st.write(f"Point coordinates: {point}")
+            st.write(f"Coordinates: {point}")
 
+            rows = []
             distances = []
-            calc_rows = []
 
             for idx, c in enumerate(centroids):
                 dx = point[0] - c[0]
@@ -144,8 +181,8 @@ if st.session_state.step == 1:
 
                 distances.append(dist)
 
-                if show_calc:
-                    calc_rows.append({
+                if show_point_calc:
+                    rows.append({
                         "Centroid": f"C{idx}",
                         "x - cx": dx,
                         "y - cy": dy,
@@ -155,8 +192,8 @@ if st.session_state.step == 1:
                         "Distance": dist
                     })
 
-            if show_calc:
-                st.dataframe(pd.DataFrame(calc_rows), height=200)
+            if show_point_calc:
+                st.dataframe(pd.DataFrame(rows), height=220)
 
             assigned_cluster = int(np.argmin(distances))
             st.write(f"Assigned to Cluster {assigned_cluster}")
@@ -177,12 +214,15 @@ if st.session_state.step == 1:
 
         with right:
             fig, ax = plt.subplots(figsize=(4, 4))
-
             for j in range(k):
                 pts = X[clusters == j]
                 ax.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {j}")
 
-            ax.scatter(centroids[:, 0], centroids[:, 1], c="black", marker="x")
+            ax.scatter(
+                centroids[:, 0], centroids[:, 1],
+                c="black", marker="x", label="Centroids"
+            )
+
             ax.set_xlabel(df.columns[0])
             ax.set_ylabel(df.columns[1])
             ax.legend(fontsize=8)
