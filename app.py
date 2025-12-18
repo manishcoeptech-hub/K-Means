@@ -1,55 +1,117 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
+from sklearn.metrics import pairwise_distances
 
-st.title("K-Means Clustering Lab")
-st.write("Illustration of K-Means Clustering on a Small Dataset")
+st.title("Interactive K-Means Clustering Lab")
+st.write("Students create a dataset, upload it, and explore K-Means step by step")
 
-# Sidebar
-st.sidebar.header("Controls")
-k = st.sidebar.slider("Number of clusters (K)", min_value=2, max_value=5, value=3)
+# -----------------------------
+# Upload Dataset
+# -----------------------------
+st.header("1️⃣ Upload Your Dataset")
 
-# Create small dataset
-data = np.array([
-    [1, 2], [1.5, 1.8], [5, 8], [8, 8],
-    [1, 0.6], [9, 11], [8, 2], [10, 2],
-    [9, 3], [4, 7]
-])
+uploaded_file = st.file_uploader("Upload CSV file (2 numeric columns only)", type=["csv"])
 
-df = pd.DataFrame(data, columns=["X", "Y"])
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
 
-st.subheader("Dataset")
-st.dataframe(df)
+    st.subheader("Uploaded Dataset")
+    st.dataframe(df)
 
-# Apply K-Means
-kmeans = KMeans(n_clusters=k, random_state=42)
-df["Cluster"] = kmeans.fit_predict(df)
+    if df.shape[1] != 2:
+        st.error("Dataset must contain exactly 2 numeric columns.")
+        st.stop()
 
-# Plot
-fig, ax = plt.subplots()
-for cluster in range(k):
-    cluster_data = df[df["Cluster"] == cluster]
-    ax.scatter(cluster_data["X"], cluster_data["Y"], label=f"Cluster {cluster}")
+    # -----------------------------
+    # Choosing K
+    # -----------------------------
+    st.header("2️⃣ Choosing Number of Clusters (K)")
 
-# Plot centroids
-centroids = kmeans.cluster_centers_
-ax.scatter(centroids[:, 0], centroids[:, 1],
-           s=200, c='black', marker='X', label="Centroids")
+    max_k = min(10, len(df))
+    inertia = []
 
-ax.set_xlabel("X")
-ax.set_ylabel("Y")
-ax.set_title("K-Means Clustering Visualization")
-ax.legend()
+    for k in range(1, max_k + 1):
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        kmeans.fit(df)
+        inertia.append(kmeans.inertia_)
 
-st.pyplot(fig)
+    fig_elbow, ax = plt.subplots()
+    ax.plot(range(1, max_k + 1), inertia, marker='o')
+    ax.set_xlabel("Number of Clusters (K)")
+    ax.set_ylabel("Inertia")
+    ax.set_title("Elbow Method for Choosing K")
 
-# Explanation
-st.subheader("Explanation")
-st.write("""
-- K-Means divides data into **K clusters**
-- Each cluster has a **centroid**
-- Points are assigned to the nearest centroid
-- Centroids move iteratively to minimize distance
-""")
+    st.pyplot(fig_elbow)
+
+    st.markdown("""
+    **Elbow Method Explanation:**
+    - Inertia = Sum of squared distances of points from centroids
+    - Choose K where inertia **starts decreasing slowly**
+    """)
+
+    # -----------------------------
+    # Select K
+    # -----------------------------
+    k = st.slider("Select number of clusters (K)", 2, max_k, 3)
+
+    # -----------------------------
+    # Apply K-Means
+    # -----------------------------
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    df["Cluster"] = kmeans.fit_predict(df)
+    centroids = kmeans.cluster_centers_
+
+    # -----------------------------
+    # Visualization
+    # -----------------------------
+    st.header("3️⃣ Cluster Visualization")
+
+    fig, ax = plt.subplots()
+    for cluster in range(k):
+        cluster_data = df[df["Cluster"] == cluster]
+        ax.scatter(cluster_data.iloc[:, 0], cluster_data.iloc[:, 1], label=f"Cluster {cluster}")
+
+    ax.scatter(centroids[:, 0], centroids[:, 1],
+               c="black", s=200, marker="X", label="Centroids")
+
+    ax.set_xlabel(df.columns[0])
+    ax.set_ylabel(df.columns[1])
+    ax.legend()
+    st.pyplot(fig)
+
+    # -----------------------------
+    # Distance Calculation
+    # -----------------------------
+    st.header("4️⃣ Euclidean Distance Calculation")
+
+    distances = pairwise_distances(df.iloc[:, :2], centroids, metric="euclidean")
+
+    distance_df = pd.DataFrame(
+        distances,
+        columns=[f"Centroid {i}" for i in range(k)]
+    )
+
+    result_df = pd.concat([df.iloc[:, :2], distance_df, df["Cluster"]], axis=1)
+
+    st.subheader("Distance of Each Point to Each Centroid")
+    st.dataframe(result_df)
+
+    # -----------------------------
+    # Explanation
+    # -----------------------------
+    st.markdown("""
+    **Euclidean Distance Formula:**
+
+    \\[
+    d = \\sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}
+    \\]
+
+    **Cluster Assignment Rule:**
+    - Each point is assigned to the centroid with **minimum distance**
+    """)
+
+else:
+    st.info("Please upload a CSV file to begin.")
