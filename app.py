@@ -2,147 +2,104 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
 
-st.set_page_config(layout="wide")
-st.title("K-Means Clustering – Complete Step-by-Step Visualization")
+st.set_page_config(layout="centered")
+st.title("K-Means Clustering: Step-by-Step Algorithm Trace")
 
-# -------------------------------------------------
+# ----------------------------
 # Upload Dataset
-# -------------------------------------------------
-st.header("1️⃣ Upload Your Dataset")
-
+# ----------------------------
 file = st.file_uploader("Upload CSV file (2 numeric columns)", type=["csv"])
 
-if file:
-    df = pd.read_csv(file)
+if not file:
+    st.stop()
 
-    if df.shape[1] != 2:
-        st.error("Dataset must have exactly 2 numeric columns.")
-        st.stop()
+df = pd.read_csv(file)
 
-    X = df.values
-    st.dataframe(df)
+if df.shape[1] != 2:
+    st.error("Dataset must contain exactly 2 numeric columns.")
+    st.stop()
 
-    # -------------------------------------------------
-    # ELBOW METHOD (FULL CALCULATIONS)
-    # -------------------------------------------------
-    st.header("2️⃣ Elbow Method (With Full Calculations)")
+X = df.values
+st.dataframe(df, height=200)
 
-    max_k = min(6, len(X))
-    inertia = {}
+# ----------------------------
+# Select K
+# ----------------------------
+k = st.number_input("Number of clusters (K)", min_value=2, max_value=5, value=2)
 
-    for k in range(1, max_k + 1):
-        centroids = X[:k]
-        distances = np.linalg.norm(X[:, None] - centroids, axis=2)
-        min_dist = np.min(distances, axis=1)
-        inertia[k] = np.sum(min_dist ** 2)
+# ----------------------------
+# Toggle Calculations
+# ----------------------------
+show_calc = st.checkbox("Show distance calculations", value=False)
 
-    if st.button("Show Elbow Method Calculations"):
-        elbow_df = pd.DataFrame({
-            "K": list(inertia.keys()),
-            "Inertia (Sum of Squared Distances)": list(inertia.values())
+# ----------------------------
+# Initialize Centroids
+# ----------------------------
+centroids = X[:k].astype(float)
+clusters = np.full(len(X), -1)
+
+st.subheader("Initial Centroids")
+st.dataframe(
+    pd.DataFrame(centroids, columns=df.columns),
+    height=120
+)
+
+# ----------------------------
+# Algorithm Trace
+# ----------------------------
+st.subheader("Point-wise Processing")
+
+for i, point in enumerate(X):
+
+    st.write(f"Processing point {i + 1}: {point}")
+
+    distances = []
+    for c in centroids:
+        d = np.sqrt(np.sum((point - c) ** 2))
+        distances.append(d)
+
+    if show_calc:
+        calc_df = pd.DataFrame({
+            "Centroid": [f"C{j}" for j in range(k)],
+            "Distance": distances
         })
-        st.dataframe(elbow_df)
+        st.dataframe(calc_df, height=120)
 
-        fig, ax = plt.subplots()
-        ax.plot(elbow_df["K"], elbow_df.iloc[:, 1], marker="o")
-        ax.set_xlabel("K")
-        ax.set_ylabel("Inertia")
-        ax.set_title("Elbow Method")
-        st.pyplot(fig)
+    new_cluster = int(np.argmin(distances))
+    old_cluster = clusters[i]
+    clusters[i] = new_cluster
 
-        st.markdown("""
-        **Inertia Formula:**
+    st.write(f"Assigned to Cluster {new_cluster}")
 
-        \\[
-        \\text{Inertia} = \\sum_{i=1}^{n} (d_i)^2
-        \\]
+    # Update centroid incrementally
+    if old_cluster != new_cluster:
+        for j in range(k):
+            pts = X[clusters == j]
+            if len(pts) > 0:
+                centroids[j] = pts.mean(axis=0)
 
-        where \( d_i \) is the minimum Euclidean distance
-        from point \( i \) to its nearest centroid.
-        """)
+        if show_calc:
+            st.write("Updated Centroids")
+            st.dataframe(
+                pd.DataFrame(centroids, columns=df.columns),
+                height=120
+            )
 
-    # -------------------------------------------------
-    # SELECT K
-    # -------------------------------------------------
-    st.header("3️⃣ Select Number of Clusters")
-    k = st.slider("Choose K", 2, max_k, 3)
+    st.markdown("---")
 
-    # -------------------------------------------------
-    # MANUAL K-MEANS ITERATIONS
-    # -------------------------------------------------
-    st.header("4️⃣ K-Means Iterations (All Calculations)")
+# ----------------------------
+# Final Cluster Plot (Small)
+# ----------------------------
+st.subheader("Final Clusters")
 
-    centroids = X[:k].copy()
+fig, ax = plt.subplots(figsize=(4, 4))
+for j in range(k):
+    pts = X[clusters == j]
+    ax.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {j}")
 
-    for iteration in range(1, 4):
-        st.subheader(f"Iteration {iteration}")
-
-        # Distance calculation
-        distances = np.linalg.norm(X[:, None] - centroids, axis=2)
-
-        distance_df = pd.DataFrame(
-            distances,
-            columns=[f"Centroid {i}" for i in range(k)]
-        )
-        st.write("📐 Euclidean Distance of Each Point to Each Centroid")
-        st.dataframe(distance_df)
-
-        # Cluster assignment
-        clusters = np.argmin(distances, axis=1)
-        assign_df = df.copy()
-        assign_df["Cluster"] = clusters
-        st.write("📌 Cluster Assignment")
-        st.dataframe(assign_df)
-
-        # Update centroids
-        new_centroids = np.array([
-            X[clusters == i].mean(axis=0) for i in range(k)
-        ])
-
-        centroid_df = pd.DataFrame(
-            new_centroids,
-            columns=df.columns,
-            index=[f"Centroid {i}" for i in range(k)]
-        )
-
-        st.write("🔄 Updated Centroids")
-        st.dataframe(centroid_df)
-
-        if np.allclose(centroids, new_centroids):
-            st.success("Centroids converged. Algorithm stops.")
-            break
-
-        centroids = new_centroids
-
-    # -------------------------------------------------
-    # FINAL CLUSTER VISUALIZATION
-    # -------------------------------------------------
-    st.header("5️⃣ Final Cluster Visualization")
-
-    fig, ax = plt.subplots()
-    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"]
-
-    for i in range(k):
-        cluster_points = X[clusters == i]
-        ax.scatter(cluster_points[:, 0], cluster_points[:, 1],
-                   color=colors[i], label=f"Cluster {i}")
-
-        # Draw circle around cluster
-        center = centroids[i]
-        radius = np.max(np.linalg.norm(cluster_points - center, axis=1))
-        circle = Circle(center, radius, fill=False, linestyle="--")
-        ax.add_patch(circle)
-
-    ax.scatter(centroids[:, 0], centroids[:, 1],
-               marker="X", s=200, color="black", label="Centroids")
-
-    ax.set_xlabel(df.columns[0])
-    ax.set_ylabel(df.columns[1])
-    ax.set_title("K-Means Clusters with Boundary Circles")
-    ax.legend()
-    st.pyplot(fig)
-
-else:
-    st.info("Upload a dataset to start the lab.")
+ax.scatter(centroids[:, 0], centroids[:, 1], c="black", marker="x")
+ax.set_xlabel(df.columns[0])
+ax.set_ylabel(df.columns[1])
+ax.legend(fontsize=8)
+st.pyplot(fig)
